@@ -7,10 +7,10 @@ pool:
 steps:
 - task: Maven@4
   inputs:
-    mavenPomFile: 'pom.xml'
+    mavenPomFile: 'javaapp/pom.xml'
     goals: 'clean package'
 
 - task: PublishBuildArtifacts@1
   inputs:
-    pathToPublish: 'target'
+    pathToPublish: 'javaapp/target'
     artifactName: 'java-artifact'
