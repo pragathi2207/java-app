@@ -1,0 +1,17 @@
+name: "task-group1"
+description: "Composite action migrated from Azure DevOps task group: task-group1"
+
+inputs:
+  environment:
+    description: "Target environment"
+    required: true
+  working-directory:
+    description: "Working directory"
+    required: false
+    default: '.'
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+
