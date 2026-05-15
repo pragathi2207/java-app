@@ -8,12 +8,11 @@ on:
     branches: [ "master" ]
 
 permissions:
+  id-token: write
   contents: read
 
 env:
   APP_NAME: javaapp
-  RESOURCE_GROUP: test-rg
-  VM_NAME: vm2
 
 jobs:
 
@@ -21,8 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -30,40 +28,34 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Build + Test
+      - name: Build and Test
         run: mvn clean package test
 
 
   deploy:
     needs: build-test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, vm2]
 
     environment:
       name: prod
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Deploy on Azure VM
-        uses: azure/CLI@v2
-        with:
-          inlineScript: |
-            az vm run-command invoke \
-              --resource-group test-rg \
-              --name vm2 \
-              --command-id RunShellScript \
-              --scripts "
-                cd /home/azureuser/java-app || exit 1
+      - name: Build WAR on VM
+        run: mvn clean package
 
-                git pull || true
+      - name: Stop existing container
+        run: docker stop javaapp || true
 
-                mvn clean package
+      - name: Remove existing container
+        run: docker rm javaapp || true
 
-                docker stop javaapp || true
-                docker rm javaapp || true
+      - name: Build Docker image
+        run: docker build -t javaapp:latest .
 
-                docker build -t javaapp:latest .
+      - name: Run container
+        run: docker run -d -p 8080:8080 --name javaapp javaapp:latest
 
-                docker run -d -p 8080:8080 --name javaapp javaapp:latest
-              "
+      - name: Health check
+        run: curl -f http://localhost:8080/javaapp/ || exit 1
