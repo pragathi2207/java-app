@@ -1,61 +1,142 @@
-name: JavaAPP
+name: Java Tomcat CI/CD
 
+# ======================================================
+# i) TRIGGERS
+# ======================================================
 on:
-  pull_request:
-    branches: [ "master" ]
-
   push:
-    branches: [ "master" ]
+    branches:
+      - master
 
-permissions:
-  id-token: write
-  contents: read
+  pull_request:
+    branches:
+      - master
 
 env:
-  APP_NAME: javaapp
+  # ======================================================
+  # iv) VARIABLE GROUP EQUIVALENT
+  # ======================================================
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  IMAGE_NAME: java-app
+  CONTAINER_NAME: java-tomcat-container
 
 jobs:
 
-  build-test:
+  # ======================================================
+  # iii) PR VALIDATION
+  # ======================================================
+  pr-validation:
+
+    if: github.event_name == 'pull_request'
+
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      # ======================================================
+      # ii) RESOURCES
+      # ======================================================
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Maven Build
+        run: mvn clean install
+
+      - name: Run Unit Tests
+        run: mvn test
+
+  # ======================================================
+  # BUILD STAGE
+  # ======================================================
+  build:
+
+    if: github.event_name != 'pull_request'
+
+    runs-on: ubuntu-latest
+
+    outputs:
+      imageTag: ${{ steps.tag.outputs.tag }}
+
+    steps:
+
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: 'temurin'
+          java-version: '17'
 
-      - name: Build and Test
-        run: mvn clean package test
-
-
-  deploy:
-    needs: build-test
-    runs-on: [self-hosted, linux, vm2]
-
-    environment:
-      name: prod
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build WAR on VM
+      - name: Build WAR File
         run: mvn clean package
 
-      - name: Stop existing container
-        run: docker stop javaapp || true
+      - name: Generate Docker Tag
+        id: tag
+        run: |
+          echo "tag=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
-      - name: Remove existing container
-        run: docker rm javaapp || true
+      # ======================================================
+      # v) CONNECT TO ACR
+      # ======================================================
+      - name: Docker Login to ACR
+        run: |
+          docker login ${{ env.ACR_NAME }} \
+          -u ${{ secrets.ACR_USERNAME }} \
+          -p ${{ secrets.ACR_PASSWORD }}
 
-      - name: Build Docker image
-        run: docker build -t javaapp:latest .
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }} .
 
-      - name: Run container
-        run: docker run -d -p 8080:8080 --name javaapp javaapp:latest
+      - name: Push Docker Image to ACR
+        run: |
+          docker push ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-      - name: Health check
-        run: curl -f http://localhost:8080/javaapp/ || exit 1
+  # ======================================================
+  # vi) DEPLOYMENT STAGE WITH APPROVAL
+  # ======================================================
+  deploy:
+
+    needs: build
+
+    # ======================================================
+    # vii) SELF HOSTED RUNNER VM
+    # ======================================================
+    runs-on: [self-hosted, Linux, X64, vm]
+
+    environment:
+      name: production
+
+    steps:
+
+      - name: Docker Login to ACR
+        run: |
+          docker login ${{ env.ACR_NAME }} \
+          -u ${{ secrets.ACR_USERNAME }} \
+          -p ${{ secrets.ACR_PASSWORD }}
+
+      - name: Pull Latest Image
+        run: |
+          docker pull ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
+
+      - name: Stop Existing Container
+        run: |
+          docker stop ${{ env.CONTAINER_NAME }} || true
+          docker rm ${{ env.CONTAINER_NAME }} || true
+
+      - name: Deploy Container on VM
+        run: |
+          docker run -d \
+          --name ${{ env.CONTAINER_NAME }} \
+          -p 8080:8080 \
+          ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
+
+      - name: Verify Running Container
+        run: docker ps
