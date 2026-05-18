@@ -170,7 +170,7 @@ jobs:
         run: |
           docker run -d \
           --name ${{ env.CONTAINER_NAME }} \
-          -p 80:80 \
+          -p 3000:80 \
           ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
 
       # ===============================================
