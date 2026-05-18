@@ -1,32 +1,27 @@
-# =====================================================
-# STAGE 1 - BUILD JAVA WAR
-# =====================================================
-FROM maven:3.9.6-eclipse-temurin-17 AS build
+# ============================================
+# BUILD STAGE
+# ============================================
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+
+WORKDIR /src
+
+COPY . .
+
+RUN dotnet restore src/HelloDotnetApp/HelloDotnetApp.csproj
+
+RUN dotnet publish src/HelloDotnetApp/HelloDotnetApp.csproj \
+-c Release \
+-o /app/publish
+
+# ============================================
+# RUNTIME STAGE
+# ============================================
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
 
 WORKDIR /app
 
-# Copy complete project
-COPY . .
+COPY --from=build /app/publish .
 
-# Build WAR file
-RUN mvn clean package -DskipTests
+EXPOSE 80
 
-# Debug - verify WAR generated
-RUN ls -ltr /app/target
-
-# =====================================================
-# STAGE 2 - TOMCAT DEPLOYMENT
-# =====================================================
-FROM tomcat:9.0-jdk17
-
-# Remove default Tomcat applications
-RUN rm -rf /usr/local/tomcat/webapps/*
-
-# Copy generated WAR into Tomcat
-COPY --from=build /app/target/*.war /usr/local/tomcat/webapps/javaapp.war
-
-# Expose Tomcat port
-EXPOSE 8080
-
-# Start Tomcat
-CMD ["catalina.sh", "run"]
+ENTRYPOINT ["dotnet", "HelloDotnetApp.dll"]

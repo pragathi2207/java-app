@@ -1,32 +1,24 @@
-name: Java Tomcat CI-CD Pipeline
+name: DotNet IIS CI-CD
 
-# =========================================================
-# i) TRIGGERS
-# =========================================================
 on:
   push:
     branches:
-      - master
+      - feature/iis
 
   pull_request:
     branches:
-      - master
+      - feature/iis
 
-# =========================================================
-# iv) VARIABLE GROUP EQUIVALENT
-# GitHub Variables:
-# Repo -> Settings -> Secrets and variables -> Actions
-# =========================================================
 env:
   ACR_NAME: ${{ vars.ACR_NAME }}
-  IMAGE_NAME: java-app
-  CONTAINER_NAME: java-tomcat-container
+  IMAGE_NAME: dotnet-iis-app
+  CONTAINER_NAME: dotnet-iis-container
 
 jobs:
 
-# =========================================================
-# iii) PR VALIDATION
-# =========================================================
+  # ==================================================
+  # PR VALIDATION
+  # ==================================================
   pr-validation:
 
     if: github.event_name == 'pull_request'
@@ -35,24 +27,26 @@ jobs:
 
     steps:
 
-      - name: Checkout Source Code
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      # =========================================================
-      # ii) RESOURCES
-      # =========================================================
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          distribution: temurin
-          java-version: 17
+          dotnet-version: 8.0.x
 
-      - name: Validate Maven Build
-        run: mvn clean verify
+      - name: Restore Packages
+        run: |
+          dotnet restore src/HelloDotnetApp/HelloDotnetApp.csproj
 
-# =========================================================
-# BUILD STAGE
-# =========================================================
+      - name: Build Application
+        run: |
+          dotnet build src/HelloDotnetApp/HelloDotnetApp.csproj \
+          --configuration Release
+
+  # ==================================================
+  # BUILD STAGE
+  # ==================================================
   build:
 
     if: github.event_name != 'pull_request'
@@ -64,58 +58,54 @@ jobs:
 
     steps:
 
-      - name: Checkout Source Code
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          distribution: temurin
-          java-version: 17
+          dotnet-version: 8.0.x
 
-      # =========================================================
-      # BUILD WAR FILE
-      # =========================================================
-      - name: Build WAR File
-        run: mvn clean package -DskipTests
-
-      # =========================================================
-      # SHOW GENERATED ARTIFACTS
-      # =========================================================
-      - name: Verify WAR Generated
+      - name: Restore Packages
         run: |
-          echo "Listing target folder"
-          ls -ltr target/
+          dotnet restore src/HelloDotnetApp/HelloDotnetApp.csproj
 
-      # =========================================================
-      # ARTIFACT UPLOAD (Azure DevOps equivalent)
-      # =========================================================
-      - name: Upload WAR Artifact
+      - name: Publish Application
+        run: |
+          dotnet publish src/HelloDotnetApp/HelloDotnetApp.csproj \
+          -c Release \
+          -o publish
+
+      - name: Verify Publish Files
+        run: |
+          ls -ltr publish/
+
+      # ===============================================
+      # ARTIFACT UPLOAD
+      # ===============================================
+      - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: java-war-artifact
-          path: target/*.war
+          name: dotnet-build-artifact
+          path: publish/
 
-      # =========================================================
-      # GENERATE IMAGE TAG
-      # =========================================================
-      - name: Generate Docker Tag
+      - name: Generate Image Tag
         id: tag
         run: |
           echo "tag=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
 
-      # =========================================================
-      # v) CONNECT TO ACR
-      # =========================================================
-      - name: Login to Azure Container Registry
+      # ===============================================
+      # LOGIN TO ACR
+      # ===============================================
+      - name: Docker Login to ACR
         run: |
           docker login ${{ env.ACR_NAME }} \
           -u ${{ secrets.ACR_USERNAME }} \
           -p ${{ secrets.ACR_PASSWORD }}
 
-      # =========================================================
-      # BUILD DOCKER IMAGE
-      # =========================================================
+      # ===============================================
+      # BUILD IMAGE
+      # ===============================================
       - name: Build Docker Image
         run: |
           docker build \
@@ -124,88 +114,74 @@ jobs:
       - name: Verify Docker Images
         run: docker images
 
-      # =========================================================
-      # PUSH IMAGE TO ACR
-      # =========================================================
+      # ===============================================
+      # PUSH IMAGE
+      # ===============================================
       - name: Push Docker Image
         run: |
           docker push \
           ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
 
-# =========================================================
-# vi) DEPLOYMENT STAGE WITH APPROVAL
-# =========================================================
+  # ==================================================
+  # DEPLOY STAGE
+  # ==================================================
   deploy:
 
     needs: build
 
-    # =========================================================
-    # vii) SELF HOSTED RUNNER VM
-    # =========================================================
     runs-on: [self-hosted, Linux, X64, vm]
 
-    # =========================================================
-    # MANUAL APPROVAL ENVIRONMENT
-    # =========================================================
     environment:
       name: prod
 
     steps:
 
-      # =========================================================
-      # DOWNLOAD ARTIFACT (OPTIONAL DEMO)
-      # =========================================================
-      - name: Download WAR Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: java-war-artifact
+          name: dotnet-build-artifact
 
       - name: Verify Downloaded Artifact
         run: |
-          echo "Downloaded artifacts:"
           ls -ltr
 
-      # =========================================================
+      # ===============================================
       # LOGIN TO ACR
-      # =========================================================
-      - name: Login to Azure Container Registry
+      # ===============================================
+      - name: Docker Login to ACR
         run: |
           docker login ${{ env.ACR_NAME }} \
           -u ${{ secrets.ACR_USERNAME }} \
           -p ${{ secrets.ACR_PASSWORD }}
 
-      # =========================================================
+      # ===============================================
       # PULL IMAGE
-      # =========================================================
+      # ===============================================
       - name: Pull Docker Image
         run: |
           docker pull \
           ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
 
-      # =========================================================
+      # ===============================================
       # STOP OLD CONTAINER
-      # =========================================================
+      # ===============================================
       - name: Stop Existing Container
         run: |
           docker stop ${{ env.CONTAINER_NAME }} || true
           docker rm ${{ env.CONTAINER_NAME }} || true
 
-      # =========================================================
+      # ===============================================
       # DEPLOY NEW CONTAINER
-      # =========================================================
-      - name: Deploy Container
+      # ===============================================
+      - name: Run Container
         run: |
           docker run -d \
           --name ${{ env.CONTAINER_NAME }} \
-          -p 8080:8080 \
+          -p 80:80 \
           ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
 
-      # =========================================================
+      # ===============================================
       # VERIFY DEPLOYMENT
-      # =========================================================
-      - name: Verify Running Containers
+      # ===============================================
+      - name: Verify Running Container
         run: docker ps
-
-      - name: Verify Tomcat Webapps
-        run: |
-          docker exec ${{ env.CONTAINER_NAME }} ls /usr/local/tomcat/webapps/
