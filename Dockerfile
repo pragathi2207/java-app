@@ -1,32 +1,25 @@
-# =====================================================
-# STAGE 1 - BUILD JAVA WAR
-# =====================================================
-FROM maven:3.9.6-eclipse-temurin-17 AS build
+# ==================================================
+# BUILD STAGE
+# ==================================================
+FROM node:20 AS build
 
 WORKDIR /app
 
-# Copy complete project
 COPY . .
 
-# Build WAR file
-RUN mvn clean package -DskipTests
+RUN npm install
 
-# Debug - verify WAR generated
-RUN ls -ltr /app/target
+RUN npm run build
 
-# =====================================================
-# STAGE 2 - TOMCAT DEPLOYMENT
-# =====================================================
-FROM tomcat:9.0-jdk17
+# ==================================================
+# NGINX STAGE
+# ==================================================
+FROM nginx:alpine
 
-# Remove default Tomcat applications
-RUN rm -rf /usr/local/tomcat/webapps/*
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Copy generated WAR into Tomcat
-COPY --from=build /app/target/*.war /usr/local/tomcat/webapps/javaapp.war
+COPY --from=build /app/build /usr/share/nginx/html
 
-# Expose Tomcat port
-EXPOSE 8080
+EXPOSE 80
 
-# Start Tomcat
-CMD ["catalina.sh", "run"]
+CMD ["nginx", "-g", "daemon off;"]
