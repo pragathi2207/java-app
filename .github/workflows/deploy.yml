@@ -148,7 +148,7 @@ jobs:
     # MANUAL APPROVAL ENVIRONMENT
     # =========================================================
     environment:
-      name: production
+      name: prod
 
     steps:
 
