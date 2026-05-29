@@ -35,8 +35,6 @@ jobs:
 
       - name: Run unit tests + coverage check
         run: ./mvnw --batch-mode verify -P unit-tests
-        # 'verify' triggers: compile → test → jacoco:report → jacoco:check (80% threshold)
-        # All controlled by JaCoCo plugin executions declared in pom.xml
 
       - name: Upload JaCoCo coverage report
         uses: actions/upload-artifact@v4
@@ -81,9 +79,6 @@ jobs:
           ./mvnw --batch-mode verify \
             -DskipUnitTests=true \
             -P integration-tests
-        # Assumes a Maven profile named 'integration-tests' in pom.xml.
-        # If you use Failsafe plugin directly, replace with:
-        #   ./mvnw --batch-mode failsafe:integration-test failsafe:verify
 
       - name: Upload integration test results
         uses: actions/upload-artifact@v4
@@ -115,19 +110,23 @@ jobs:
       - name: Make mvnw executable
         run: chmod +x ./mvnw
 
-      - name: Build JAR (skip tests — already passed)
+      - name: Build JAR
         run: ./mvnw --batch-mode package -DskipTests
 
-      - name: Read project version
+      - name: Read project version and locate JAR
         run: |
           VERSION=$(./mvnw help:evaluate -Dexpression=project.version -q -DforceStdout)
           echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+          # Debug: confirm JAR was actually produced
+          echo "=== JARs in target/ ==="
+          ls -lh target/*.jar 2>/dev/null || echo "No JARs found — check package phase"
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
-          name: java-app-${{ env.APP_VERSION }}-${{ github.run_number }}
+          name: java-app-${{ env.APP_VERSION }}-build-${{ github.run_number }}
           path: target/*.jar
+          if-no-files-found: error
           retention-days: 30
 
       - name: Create GitHub Release on tag push
