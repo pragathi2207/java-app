@@ -1,180 +1,105 @@
-name: React NGINX CI-CD
+name: .NET CI Pipeline
 
 on:
   push:
-    branches:
-      - feature/react
-
+    branches: [ "master", "main", "develop" ]
   pull_request:
-    branches:
-      - feature/react
+    branches: [ "master", "main", "develop" ]
+
+permissions:
+  contents: write
 
 env:
-  ACR_NAME: ${{ vars.ACR_NAME }}
-  IMAGE_NAME: react-nginx-app
-  CONTAINER_NAME: react-nginx-container
+  DOTNET_VERSION: '8.0.x'
 
 jobs:
 
-  # ==================================================
-  # PR VALIDATION
-  # ==================================================
-  pr-validation:
-
-    if: github.event_name == 'pull_request'
-
+# ─────────────────────────────────────────────
+# UNIT TESTS
+# ─────────────────────────────────────────────
+  test:
+    name: .NET Tests
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
 
-      - name: Checkout Source
-        uses: actions/checkout@v4
-
-      - name: Setup NodeJS
-        uses: actions/setup-node@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          node-version: 20
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Restore
+        run: dotnet restore
 
-      - name: Build React App
-        run: npm run build
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
 
-  # ==================================================
-  # BUILD STAGE
-  # ==================================================
+      - name: Run Tests
+        run: dotnet test --configuration Release --no-build --logger trx
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dotnet-test-results
+          path: "**/*.trx"
+
+# ─────────────────────────────────────────────
+# BUILD / PUBLISH
+# ─────────────────────────────────────────────
   build:
-
-    if: github.event_name != 'pull_request'
-
+    name: Build & Publish
     runs-on: ubuntu-latest
-
-    outputs:
-      imageTag: ${{ steps.tag.outputs.tag }}
+    needs: test
+    if: github.event_name == 'push'
 
     steps:
+      - uses: actions/checkout@v4
 
-      - name: Checkout Source
-        uses: actions/checkout@v4
-
-      - name: Setup NodeJS
-        uses: actions/setup-node@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
-          node-version: 20
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Install Dependencies
-        run: npm install
+      - name: Publish App
+        run: dotnet publish -c Release -o out
 
-      - name: Build React Application
-        run: npm run build
-
-      - name: Verify Build Folder
-        run: |
-          ls -ltr build/
-
-      # ===============================================
-      # ARTIFACT UPLOAD
-      # ===============================================
-      - name: Upload React Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: react-build-artifact
-          path: build/
+          name: dotnet-app
+          path: out
 
-      - name: Generate Docker Tag
-        id: tag
-        run: |
-          echo "tag=${GITHUB_RUN_NUMBER}" >> $GITHUB_OUTPUT
-
-      # ===============================================
-      # LOGIN TO ACR
-      # ===============================================
-      - name: Docker Login to ACR
-        run: |
-          docker login ${{ env.ACR_NAME }} \
-          -u ${{ secrets.ACR_USERNAME }} \
-          -p ${{ secrets.ACR_PASSWORD }}
-
-      # ===============================================
-      # BUILD IMAGE
-      # ===============================================
-      - name: Build Docker Image
-        run: |
-          docker build \
-          -t ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }} .
-
-      - name: Verify Docker Images
-        run: docker images
-
-      # ===============================================
-      # PUSH IMAGE
-      # ===============================================
-      - name: Push Docker Image
-        run: |
-          docker push \
-          ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
-
-  # ==================================================
-  # DEPLOY STAGE
-  # ==================================================
-  deploy:
-
+# ─────────────────────────────────────────────
+# RELEASE
+# ─────────────────────────────────────────────
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
     needs: build
-
-    runs-on: [self-hosted, Linux, X64, vm]
-
-    environment:
-      name: prod
+    if: github.event_name == 'push'
 
     steps:
+      - uses: actions/checkout@v4
 
-      - name: Download React Artifact
+      - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
-          name: react-build-artifact
+          name: dotnet-app
+          path: out
 
-      - name: Verify Downloaded Artifact
+      - name: Generate Version
         run: |
-          ls -ltr
+          DATE=$(date +'%Y%m%d')
+          echo "TAG=dotnet-build-$DATE.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "NAME=.NET Build $DATE.${{ github.run_number }}" >> $GITHUB_ENV
 
-      # ===============================================
-      # LOGIN TO ACR
-      # ===============================================
-      - name: Docker Login to ACR
-        run: |
-          docker login ${{ env.ACR_NAME }} \
-          -u ${{ secrets.ACR_USERNAME }} \
-          -p ${{ secrets.ACR_PASSWORD }}
-
-      # ===============================================
-      # PULL IMAGE
-      # ===============================================
-      - name: Pull Docker Image
-        run: |
-          docker pull \
-          ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
-
-      # ===============================================
-      # STOP OLD CONTAINER
-      # ===============================================
-      - name: Stop Existing Container
-        run: |
-          docker stop ${{ env.CONTAINER_NAME }} || true
-          docker rm ${{ env.CONTAINER_NAME }} || true
-
-      # ===============================================
-      # DEPLOY NEW CONTAINER
-      # ===============================================
-      - name: Run Container
-        run: |
-          docker run -d \
-          --name ${{ env.CONTAINER_NAME }} \
-          -p 3000:80 \
-          ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.imageTag }}
-
-      # ===============================================
-      # VERIFY DEPLOYMENT
-      # ===============================================
-      - name: Verify Running Container
-        run: docker ps
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.NAME }}
+          files: out/**
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
