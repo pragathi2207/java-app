@@ -2,23 +2,25 @@ name: .NET CI Pipeline
 
 on:
   push:
-    branches: [ "feature/iis" ]
+    branches: [ "feature/iis", "master", "main", "develop" ]
   pull_request:
-    branches: [ "feature/iis" ]
+    branches: [ "feature/iis", "master", "main", "develop" ]
 
 permissions:
   contents: write
 
 env:
   DOTNET_VERSION: '8.0.x'
+  PROJECT_PATH: ./src/HelloDotnetApp/HelloDotnetApp.csproj
 
 jobs:
 
-# ─────────────────────────────────────────────
-# TEST + BUILD
-# ─────────────────────────────────────────────
-  test-build:
-    name: .NET Test & Build
+  # ═══════════════════════════════════════════════════════════
+  # STAGE 1 — PR Validation
+  # Runs on every push and PR. Gate before any build/deploy.
+  # ═══════════════════════════════════════════════════════════
+  pr-validation:
+    name: PR Validation
     runs-on: ubuntu-latest
 
     steps:
@@ -30,30 +32,41 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      # FIX: correct project path
-      - name: Restore
-        run: dotnet restore ./src/HelloDotnetApp/HelloDotnetApp.csproj
+      # ── Restore & Build ────────────────────────────────────
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
 
       - name: Build
-        run: dotnet build ./src/HelloDotnetApp/HelloDotnetApp.csproj --configuration Release --no-restore
+        run: dotnet build ${{ env.PROJECT_PATH }} --configuration Release --no-restore
 
-      - name: Run Tests
-        run: dotnet test ./src/HelloDotnetApp/HelloDotnetApp.csproj --configuration Release --no-build --logger trx
+      # ── Unit Tests ─────────────────────────────────────────
+      - name: Run tests
+        run: dotnet test ${{ env.PROJECT_PATH }} --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage"
 
-      - name: Upload Test Results
+      - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: dotnet-test-results
           path: "**/*.trx"
+          retention-days: 7
 
-# ─────────────────────────────────────────────
-# PUBLISH ARTIFACT
-# ─────────────────────────────────────────────
-  publish:
-    name: Publish .NET App
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dotnet-coverage-report
+          path: "**/coverage.cobertura.xml"
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════
+  # STAGE 2 — Build & Deploy
+  # Only runs on push. Requires Stage 1 to pass.
+  # ═══════════════════════════════════════════════════════════
+  build-and-deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
-    needs: test-build
+    needs: pr-validation
     if: github.event_name == 'push'
 
     steps:
@@ -65,48 +78,46 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
-      - name: Publish
-        run: dotnet publish ./src/HelloDotnetApp/HelloDotnetApp.csproj -c Release -o out
+      # ── Publish ────────────────────────────────────────────
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
 
-      - name: Upload Artifact
+      - name: Publish
+        run: dotnet publish ${{ env.PROJECT_PATH }} -c Release --no-restore -o out
+
+      - name: Upload published artifact
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-app
-          path: out
+          path: out/
+          retention-days: 30
 
-# ─────────────────────────────────────────────
-# RELEASE
-# ─────────────────────────────────────────────
-  release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    needs: publish
-    if: github.event_name == 'push'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dotnet-app
-          path: out
-
-      - name: Generate Version
+      # ── GitHub Release ─────────────────────────────────────
+      - name: Generate build metadata
+        id: meta
         run: |
           DATE=$(date +'%Y%m%d')
-          echo "TAG=dotnet-build-$DATE.${{ github.run_number }}" >> $GITHUB_ENV
-          echo "NAME=.NET Build $DATE.${{ github.run_number }}" >> $GITHUB_ENV
+          echo "tag=dotnet-build-${DATE}.${{ github.run_number }}" >> $GITHUB_OUTPUT
+          echo "name=.NET Build ${DATE}.${{ github.run_number }}"  >> $GITHUB_OUTPUT
+
+      - name: Zip publish output
+        run: zip -r dotnet-app.zip out/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG }}
-          name: ${{ env.NAME }}
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
           body: |
-            .NET Build Release
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-          files: out/**
+            ## ${{ steps.meta.outputs.name }}
+
+            **Branch:** `${{ github.ref_name }}`
+            **Commit:** `${{ github.sha }}`
+            **Triggered by:** ${{ github.actor }}
+
+            ### What's included
+            - Built from commit ${{ github.sha }}
+            - All tests passed
+          files: dotnet-app.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
