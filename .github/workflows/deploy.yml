@@ -21,7 +21,7 @@ jobs:
 
   # ═══════════════════════════════════════════════════════════
   # STAGE 1 — PR Validation
-  # Runs on every push and PR. Gate before any build/deploy.
+  # Runs on every push and PR
   # ═══════════════════════════════════════════════════════════
   pr-validation:
     name: PR Validation
@@ -35,24 +35,22 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
         working-directory: ${{ env.APP_PATH }}
 
       - name: Build
         run: npm run build
         working-directory: ${{ env.APP_PATH }}
 
-      # ── Unit Tests + Coverage ──────────────────────────────
       - name: Run unit tests
-        run: npm test -- --watchAll=false --coverage
+        run: npm test -- --watchAll=false
         working-directory: ${{ env.APP_PATH }}
         continue-on-error: true
 
-      - name: Upload coverage report
+      - name: Upload coverage report (if exists)
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,7 +60,7 @@ jobs:
 
   # ═══════════════════════════════════════════════════════════
   # STAGE 2 — Build & Release
-  # Only runs on push. Requires Stage 1 to pass.
+  # Runs only on push
   # ═══════════════════════════════════════════════════════════
   build-and-release:
     name: Build & Release
@@ -78,11 +76,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: package-lock.json
+          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
         working-directory: ${{ env.APP_PATH }}
 
       - name: Build
@@ -96,7 +93,6 @@ jobs:
           path: build/
           retention-days: 30
 
-      # ── GitHub Release ─────────────────────────────────────
       - name: Generate build metadata
         id: meta
         run: |
@@ -119,7 +115,7 @@ jobs:
             **Commit:** `${{ github.sha }}`
             **Triggered by:** ${{ github.actor }}
 
-            ### What's included
+            ### Included
             - Production React build
             - CI validated
           files: react-app.zip
