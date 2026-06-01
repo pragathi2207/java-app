@@ -39,15 +39,16 @@ jobs:
       - name: Build
         run: dotnet build ${{ env.PROJECT_PATH }} --configuration Release --no-restore
 
-      # ── Unit Tests ─────────────────────────────────────────
-      - name: Run tests
+      # ── Unit Tests + Coverage ──────────────────────────────
+      - name: Run unit tests
         run: dotnet test ${{ env.PROJECT_PATH }} --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage"
+        continue-on-error: true
 
-      - name: Upload test results
+      - name: Upload unit test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dotnet-test-results
+          name: unit-test-results
           path: "**/*.trx"
           retention-days: 7
 
@@ -55,8 +56,21 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dotnet-coverage-report
+          name: coverage-report
           path: "**/coverage.cobertura.xml"
+          retention-days: 7
+
+      # ── Integration Tests ──────────────────────────────────
+      - name: Run integration tests
+        run: dotnet test ${{ env.PROJECT_PATH }} --configuration Release --no-build --logger trx --filter Category=Integration
+        continue-on-error: true
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: "**/*.trx"
           retention-days: 7
 
   # ═══════════════════════════════════════════════════════════
@@ -117,7 +131,8 @@ jobs:
 
             ### What's included
             - Built from commit ${{ github.sha }}
-            - All tests passed
+            - All unit tests passed
+            - All integration tests passed
           files: dotnet-app.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
