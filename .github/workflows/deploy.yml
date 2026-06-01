@@ -19,10 +19,9 @@ concurrency:
 
 jobs:
 
-  # ═══════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────
   # STAGE 1 — PR Validation
-  # Runs on every push and PR
-  # ═══════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────
   pr-validation:
     name: PR Validation
     runs-on: ubuntu-latest
@@ -35,7 +34,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       - name: Install dependencies
         run: npm install
@@ -45,23 +43,14 @@ jobs:
         run: npm run build
         working-directory: ${{ env.APP_PATH }}
 
-      - name: Run unit tests
+      - name: Run tests (if any)
         run: npm test -- --watchAll=false
         working-directory: ${{ env.APP_PATH }}
         continue-on-error: true
 
-      - name: Upload coverage report (if exists)
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage/
-          retention-days: 7
-
-  # ═══════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────
   # STAGE 2 — Build & Release
-  # Runs only on push
-  # ═══════════════════════════════════════════════════════════
+  # ─────────────────────────────────────────────────────────
   build-and-release:
     name: Build & Release
     runs-on: ubuntu-latest
@@ -76,7 +65,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       - name: Install dependencies
         run: npm install
@@ -93,14 +81,14 @@ jobs:
           path: build/
           retention-days: 30
 
-      - name: Generate build metadata
+      - name: Generate release metadata
         id: meta
         run: |
           DATE=$(date +'%Y%m%d')
           echo "tag=react-build-${DATE}.${{ github.run_number }}" >> $GITHUB_OUTPUT
           echo "name=React Build ${DATE}.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
-      - name: Zip build output
+      - name: Zip build
         run: zip -r react-app.zip build/
 
       - name: Create GitHub Release
@@ -108,16 +96,6 @@ jobs:
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
-          body: |
-            ## ${{ steps.meta.outputs.name }}
-
-            **Branch:** `${{ github.ref_name }}`
-            **Commit:** `${{ github.sha }}`
-            **Triggered by:** ${{ github.actor }}
-
-            ### Included
-            - Production React build
-            - CI validated
           files: react-app.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
