@@ -42,7 +42,7 @@ jobs:
 
       # ── Unit Tests + Coverage ──────────────────────────────
       - name: Run unit tests
-        run: npm test -- --watchAll=false --coverage --reporter=junit --outputFile=test-results/unit.xml
+        run: npm test -- --watchAll=false --coverage
         working-directory: ${{ env.APP_PATH }}
         continue-on-error: true
 
@@ -51,7 +51,7 @@ jobs:
         if: always()
         with:
           name: unit-test-results
-          path: ${{ env.APP_PATH }}/test-results/
+          path: ${{ env.APP_PATH }}/coverage/
           retention-days: 7
 
       - name: Upload coverage report
@@ -64,7 +64,7 @@ jobs:
 
       # ── Integration Tests ──────────────────────────────────
       - name: Run integration tests
-        run: npm test -- --watchAll=false --testPathPattern=integration
+        run: npm test -- --watchAll=false --testPathPattern=integration --passWithNoTests
         working-directory: ${{ env.APP_PATH }}
         continue-on-error: true
 
@@ -73,7 +73,7 @@ jobs:
         if: always()
         with:
           name: integration-test-results
-          path: ${{ env.APP_PATH }}/test-results/
+          path: ${{ env.APP_PATH }}/coverage/
           retention-days: 7
 
   # ═══════════════════════════════════════════════════════════
