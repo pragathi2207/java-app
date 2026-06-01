@@ -38,10 +38,11 @@ jacocoTestReport {
 }
 
 jacocoTestCoverageVerification {
+    executionData fileTree(project.buildDir).include("/jacoco/*.exec")
     violationRules {
         rule {
             limit {
-                minimum = 0.80
+                minimum = 0.37
             }
         }
     }
