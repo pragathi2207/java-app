@@ -13,10 +13,10 @@ public class UnitTest1 : IClassFixture<WebApplicationFactory<Program>>
     }
 
     [Fact]
-    public async Task Get_Root_Returns_Success()
+    public async Task Get_WeatherForecast_Returns_Success()
     {
         var client = _factory.CreateClient();
-        var response = await client.GetAsync("/");
+        var response = await client.GetAsync("/weatherforecast");
         response.EnsureSuccessStatusCode();
     }
 
