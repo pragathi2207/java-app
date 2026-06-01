@@ -37,6 +37,13 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Generate Gradle wrapper (if missing)
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper
+            chmod +x ./gradlew
+          fi
+
       # ── Unit Tests + Coverage ──────────────────────────────
       - name: Run unit tests
         run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
@@ -93,6 +100,13 @@ jobs:
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle wrapper (if missing)
+        run: |
+          if [ ! -f "./gradlew" ]; then
+            gradle wrapper
+            chmod +x ./gradlew
+          fi
 
       # ── Build WAR ──────────────────────────────────────────
       - name: Build WAR
