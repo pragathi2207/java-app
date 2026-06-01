@@ -12,6 +12,8 @@ permissions:
 env:
   DOTNET_VERSION: '8.0.x'
   PROJECT_PATH: ./src/HelloDotnetApp/HelloDotnetApp.csproj
+  TEST_PROJECT_PATH: ./src/HelloDotnetApp.Tests/HelloDotnetApp.Tests.csproj
+  INTEGRATION_TEST_PROJECT_PATH: ./src/HelloDotnetApp.Tests/HelloDotnetApp.Tests.csproj
 
 jobs:
 
@@ -41,7 +43,7 @@ jobs:
 
       # ── Unit Tests + Coverage ──────────────────────────────
       - name: Run unit tests
-        run: dotnet test ${{ env.PROJECT_PATH }} --configuration Release --no-build --logger trx --collect:"XPlat Code Coverage"
+        run: dotnet test ${{ env.TEST_PROJECT_PATH }} --configuration Release --logger trx --collect:"XPlat Code Coverage"
         continue-on-error: true
 
       - name: Upload unit test results
@@ -62,7 +64,7 @@ jobs:
 
       # ── Integration Tests ──────────────────────────────────
       - name: Run integration tests
-        run: dotnet test ${{ env.PROJECT_PATH }} --configuration Release --no-build --logger trx --filter Category=Integration
+        run: dotnet test ${{ env.INTEGRATION_TEST_PROJECT_PATH }} --configuration Release --logger trx --filter Category=Integration
         continue-on-error: true
 
       - name: Upload integration test results
