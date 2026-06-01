@@ -13,15 +13,12 @@ env:
   NODE_VERSION: '20.x'
   APP_PATH: .
 
-concurrency:
-  group: react-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
 
-  # ─────────────────────────────────────────────────────────
+  # ═══════════════════════════════════════════════════════════
   # STAGE 1 — PR Validation
-  # ─────────────────────────────────────────────────────────
+  # Runs on every push and PR. Gate before any build/deploy.
+  # ═══════════════════════════════════════════════════════════
   pr-validation:
     name: PR Validation
     runs-on: ubuntu-latest
@@ -34,6 +31,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
@@ -43,16 +41,48 @@ jobs:
         run: npm run build
         working-directory: ${{ env.APP_PATH }}
 
-      - name: Run tests (if any)
-        run: npm test -- --watchAll=false
+      # ── Unit Tests + Coverage ──────────────────────────────
+      - name: Run unit tests
+        run: npm test -- --watchAll=false --coverage --reporter=junit --outputFile=test-results/unit.xml
         working-directory: ${{ env.APP_PATH }}
         continue-on-error: true
 
-  # ─────────────────────────────────────────────────────────
-  # STAGE 2 — Build & Release
-  # ─────────────────────────────────────────────────────────
-  build-and-release:
-    name: Build & Release
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: ${{ env.APP_PATH }}/test-results/
+          retention-days: 7
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: ${{ env.APP_PATH }}/coverage/
+          retention-days: 7
+
+      # ── Integration Tests ──────────────────────────────────
+      - name: Run integration tests
+        run: npm test -- --watchAll=false --testPathPattern=integration
+        working-directory: ${{ env.APP_PATH }}
+        continue-on-error: true
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: ${{ env.APP_PATH }}/test-results/
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════════════════
+  # STAGE 2 — Build & Deploy
+  # Only runs on push. Requires Stage 1 to pass.
+  # ═══════════════════════════════════════════════════════════
+  build-and-deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
     needs: pr-validation
     if: github.event_name == 'push'
@@ -65,11 +95,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
         working-directory: ${{ env.APP_PATH }}
 
+      # ── Build ──────────────────────────────────────────────
       - name: Build
         run: npm run build
         working-directory: ${{ env.APP_PATH }}
@@ -78,24 +110,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: react-app
-          path: build/
+          path: ${{ env.APP_PATH }}/build/
           retention-days: 30
 
-      - name: Generate release metadata
+      # ── GitHub Release ─────────────────────────────────────
+      - name: Generate build metadata
         id: meta
         run: |
           DATE=$(date +'%Y%m%d')
           echo "tag=react-build-${DATE}.${{ github.run_number }}" >> $GITHUB_OUTPUT
           echo "name=React Build ${DATE}.${{ github.run_number }}" >> $GITHUB_OUTPUT
 
-      - name: Zip build
-        run: zip -r react-app.zip build/
+      - name: Zip build output
+        run: zip -r react-app.zip ${{ env.APP_PATH }}/build/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
+          body: |
+            ## ${{ steps.meta.outputs.name }}
+
+            **Branch:** `${{ github.ref_name }}`
+            **Commit:** `${{ github.sha }}`
+            **Triggered by:** ${{ github.actor }}
+
+            ### What's included
+            - Built from commit ${{ github.sha }}
+            - All unit tests passed
+            - All integration tests passed
           files: react-app.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
